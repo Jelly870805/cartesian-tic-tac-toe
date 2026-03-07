@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>笛卡爾座標井字遊戲</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      font-family: 'Inter', 'Segoe UI', sans-serif;
+      background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+      color: #f8fafc;
+      min-height: 100vh;
+      margin: 0;
+    }
+    .glass {
+      background: rgba(30, 41, 59, 0.6);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    }
+    .grid-cell {
+      position: relative;
+      background: rgba(15, 23, 42, 0.5);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      transition: all 0.2s ease;
+    }
+    .grid-cell:hover {
+      background: rgba(56, 189, 248, 0.1);
+      border-color: rgba(56, 189, 248, 0.5);
+      transform: scale(1.02);
+    }
+    .coord-tooltip {
+      position: absolute;
+      top: -30px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #38bdf8;
+      color: #0f172a;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: bold;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+      pointer-events: none;
+      white-space: nowrap;
+      z-index: 10;
+    }
+    .grid-cell:hover .coord-tooltip {
+      opacity: 1;
+    }
+    /* Cell signs */
+    .sign-x { color: #38bdf8; text-shadow: 0 0 10px rgba(56,189,248,0.5); }
+    .sign-o { color: #f472b6; text-shadow: 0 0 10px rgba(244,114,182,0.5); }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useMemo, useEffect, useRef } = React;
+
+    // --- utils/coordinates.js ---
+    const getCoordinateLabel = (index, isXAxis, isSemantic, size, start) => {
+      if (isSemantic && size === 3) {
+        if (isXAxis) return ['左', '中', '右'][index];
+        else return ['下', '中', '上'][index];
+      }
+      return start + index;
+    };
+
+    const indexToCartesian = (index, size, startX, startY, isSemantic) => {
+      const col = index % size;
+      const row = size - 1 - Math.floor(index / size);
+      
+      const numX = startX + col;
+      const numY = startY + row;
+
+      const labelX = getCoordinateLabel(col, true, isSemantic, size, startX);
+      const labelY = getCoordinateLabel(row, false, isSemantic, size, startY);
+
+      return { numX, numY, labelX, labelY };
+    };
+
+    const cartesianToIndex = (xValue, yValue, size, startX, startY, isSemantic) => {
+      let col = -1;
+      let row = -1;
+
+      if (isSemantic && size === 3 && typeof xValue === 'string') {
+        col = ['左', '中', '右'].indexOf(xValue);
+        row = ['下', '中', '上'].indexOf(yValue);
+      } else {
+        const numX = parseInt(xValue, 10);
+        const numY = parseInt(yValue, 10);
+        col = numX - startX;
+        row = numY - startY;
+      }
+
+      if (col < 0 || col >= size || row < 0 || row >= size) return -1;
+      return (size - 1 - row) * size + col;
+    };
+
+    // --- hooks/useTicTacToe.js ---
+    const checkWin = (board, size) => {
+      // Rows
+      for (let r = 0; r < size; r++) {
+        let first = board[r * size];
+        if (!first) continue;
+        let win = true;
+        for (let c = 1; c < size; c++) {
+          if (board[r * size + c] !== first) { win = false; break; }
+        }
+        if (win) return first;
+      }
+      // Cols
+      for (let c = 0; c < size; c++) {
+        let first = board[c];
+        if (!first) continue;
+        let win = true;
+        for (let r = 1; r < size; r++) {
+          if (board[r * size + c] !== first) { win = false; break; }
+        }
+        if (win) return first;
+      }
+      // Diag 1 (top-left to bottom-right)
+      let firstDiag1 = board[0];
+      if (firstDiag1) {
+        let win = true;
+        for (let i = 1; i < size; i++) {
+          if (board[i * size + i] !== firstDiag1) { win = false; break; }
+        }
+        if (win) return firstDiag1;
+      }
+      // Diag 2 (top-right to bottom-left)
+      let firstDiag2 = board[size - 1];
+      if (firstDiag2) {
+        let win = true;
+        for (let i = 1; i < size; i++) {
+          if (board[i * size + (size - 1 - i)] !== firstDiag2) { win = false; break; }
+        }
+        if (win) return firstDiag2;
+      }
+      return null;
+    };
+
+    const useTicTacToe = (size, startX, startY, isSemantic) => {
+      const [board, setBoard] = useState(Array(size * size).fill(null));
+      const [xIsNext, setXIsNext] = useState(true);
+      const [history, setHistory] = useState([]);
+      
+      const winner = useMemo(() => checkWin(board, size), [board, size]);
+      const isDraw = useMemo(() => !winner && board.every(cell => cell !== null), [board, winner]);
+
+      // Reset when settings change
+      useEffect(() => {
+        resetGame();
+      }, [size, startX, startY, isSemantic]);
+
+      const resetGame = () => {
+        setBoard(Array(size * size).fill(null));
+        setXIsNext(true);
+        setHistory([]);
+      };
+
+      const playMove = (index) => {
+        if (board[index] || winner || isDraw) return false;
+        
+        const newBoard = [...board];
+        const currentPlayer = xIsNext ? 'X' : 'O';
+        newBoard[index] = currentPlayer;
+        
+        const coords = indexToCartesian(index, size, startX, startY, isSemantic);
+        
+        setBoard(newBoard);
+        setXIsNext(!xIsNext);
+        setHistory([...history, { 
+          player: currentPlayer, 
+          index,
+          labelX: coords.labelX,
+          labelY: coords.labelY
+        }]);
+        return true;
+      };
+
+      const playCoordinate = (xStr, yStr) => {
+        const index = cartesianToIndex(xStr, yStr, size, startX, startY, isSemantic);
+        if (index === -1) return false; // Invalid move
+        return playMove(index);
+      };
+
+      return { board, xIsNext, winner, isDraw, history, playMove, playCoordinate, resetGame };
+    };
+
+    // --- Components ---
+    const App = () => {
+      const [size, setSize] = useState(3);
+      const [startX, setStartX] = useState(0);
+      const [startY, setStartY] = useState(0);
+      const [isSemantic, setIsSemantic] = useState(false);
+
+      const [inputX, setInputX] = useState('');
+      const [inputY, setInputY] = useState('');
+      const [errorMsg, setErrorMsg] = useState('');
+
+      const { board, xIsNext, winner, isDraw, history, playMove, playCoordinate, resetGame } = useTicTacToe(size, startX, startY, isSemantic);
+
+      const handleCoordSubmit = (e) => {
+        e.preventDefault();
+        setErrorMsg('');
+        if (!inputX || !inputY) return;
+        
+        const success = playCoordinate(inputX.trim(), inputY.trim());
+        if (success) {
+          setInputX('');
+          setInputY('');
+        } else {
+          setErrorMsg('無效的座標或該位置已被佔用！');
+        }
+      };
+
+      // Generate axes labels
+      const xLabels = Array.from({length: size}, (_, i) => getCoordinateLabel(i, true, isSemantic, size, startX));
+      const yLabels = Array.from({length: size}, (_, i) => getCoordinateLabel(size - 1 - i, false, isSemantic, size, startY));
+
+      return (
+        <div className="container mx-auto py-10 px-4 flex flex-col items-center gap-8">
+          <header className="text-center">
+            <h1 className="text-4xl font-black mb-2 tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">
+              笛卡爾座標井字遊戲
+            </h1>
+            <p className="text-slate-400">結合數學座標與經典遊戲的全新體驗</p>
+          </header>
+
+          <div className="flex flex-col lg:flex-row gap-8 w-full max-w-5xl">
+            {/* Left Panel: Settings & Input */}
+            <div className="flex-1 space-y-6">
+              <div className="glass p-6 rounded-2xl">
+                <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+                  <svg className="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                  遊戲設定
+                </h2>
+                <div className="grid grid-cols-1 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1">規模選擇</label>
+                    <select 
+                      value={size} 
+                      onChange={(e) => setSize(Number(e.target.value))}
+                      className="w-full bg-slate-800 border border-slate-700 rounded-lg p-2.5 text-white focus:ring-2 focus:ring-cyan-500 outline-none transition"
+                    >
+                      <option value={3}>3 x 3</option>
+                      <option value={4}>4 x 4</option>
+                      <option value={5}>5 x 5</option>
+                    </select>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-1">起始 X (行)</label>
+                      <input 
+                        type="number" 
+                        value={startX} 
+                        onChange={(e) => setStartX(Number(e.target.value))}
+                        className="w-full bg-slate-800 border border-slate-700 rounded-lg p-2.5 text-white focus:ring-2 focus:ring-cyan-500 outline-none transition"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-1">起始 Y (列)</label>
+                      <input 
+                        type="number" 
+                        value={startY} 
+                        onChange={(e) => setStartY(Number(e.target.value))}
+                        className="w-full bg-slate-800 border border-slate-700 rounded-lg p-2.5 text-white focus:ring-2 focus:ring-cyan-500 outline-none transition"
+                      />
+                    </div>
+                  </div>
+
+                  {size === 3 && (
+                    <div className="flex items-center mt-2">
+                      <input 
+                        type="checkbox" 
+                        id="semantic-toggle"
+                        checked={isSemantic}
+                        onChange={(e) => setIsSemantic(e.target.checked)}
+                        className="w-4 h-4 text-cyan-500 bg-slate-800 border-slate-700 rounded focus:ring-cyan-500"
+                      />
+                      <label htmlFor="semantic-toggle" className="ml-2 text-sm font-medium text-slate-300">
+                        啟用 3x3 語義座標 (左, 中, 右 / 下, 中, 上)
+                      </label>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Status and Action */}
+              <div className="glass p-6 rounded-2xl flex flex-col items-center justify-center text-center">
+                {winner ? (
+                  <div className="animate-bounce">
+                    <h3 className="text-2xl font-bold text-green-400 mb-2">🎉 贏家: {winner}</h3>
+                  </div>
+                ) : isDraw ? (
+                  <div>
+                    <h3 className="text-2xl font-bold text-yellow-400 mb-2">🤝 遊戲平手！</h3>
+                  </div>
+                ) : (
+                  <div>
+                    <h3 className="text-xl font-bold text-slate-200 mb-2">
+                      輪到: <span className={xIsNext ? "sign-x text-2xl" : "sign-o text-2xl"}>{xIsNext ? 'X' : 'O'}</span>
+                    </h3>
+                  </div>
+                )}
+                
+                <button 
+                  onClick={resetGame}
+                  className="mt-4 px-6 py-2 bg-gradient-to-r from-indigo-500 to-cyan-500 hover:from-indigo-400 hover:to-cyan-400 text-white font-semibold rounded-lg shadow-lg transform active:scale-95 transition"
+                >
+                  重新開始
+                </button>
+              </div>
+
+              {/* Manual Input */}
+              <div className="glass p-6 rounded-2xl">
+                <h2 className="text-lg font-bold mb-4">手動輸入座標</h2>
+                <form onSubmit={handleCoordSubmit} className="flex gap-2">
+                  <input 
+                    type={isSemantic && size === 3 ? "text" : "number"}
+                    placeholder={isSemantic && size === 3 ? "X: 左/中/右" : "X 座標"}
+                    value={inputX}
+                    onChange={(e) => setInputX(e.target.value)}
+                    className="w-1/3 bg-slate-800 border border-slate-700 rounded-lg p-2 text-white focus:ring-2 focus:ring-cyan-500 outline-none"
+                  />
+                  <input 
+                    type={isSemantic && size === 3 ? "text" : "number"}
+                    placeholder={isSemantic && size === 3 ? "Y: 下/中/上" : "Y 座標"}
+                    value={inputY}
+                    onChange={(e) => setInputY(e.target.value)}
+                    className="w-1/3 bg-slate-800 border border-slate-700 rounded-lg p-2 text-white focus:ring-2 focus:ring-cyan-500 outline-none"
+                  />
+                  <button 
+                    type="submit"
+                    disabled={!!winner || isDraw}
+                    className="flex-1 bg-cyan-600 hover:bg-cyan-500 text-white font-medium rounded-lg px-4 py-2 disabled:opacity-50 transition"
+                  >
+                    下棋
+                  </button>
+                </form>
+                {errorMsg && <p className="text-red-400 text-sm mt-2">{errorMsg}</p>}
+              </div>
+            </div>
+
+            {/* Right Panel: Board & History */}
+            <div className="flex-1 flex flex-col items-center">
+              {/* Cartesian Board Layout */}
+              <div className="flex pl-4 pr-10 pt-4 pb-10">
+                {/* Y Axis Labels (Left) */}
+                <div className="flex flex-col justify-around pr-4 text-slate-400 font-medium select-none" style={{ height: `${size * 4 + (size-1)*0.5}rem` }}>
+                  {yLabels.map((lbl, i) => (
+                    <div key={`y-${i}`} className="flex items-center justify-end h-16 w-8 text-right">
+                      {lbl}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="relative">
+                  {/* The Grid */}
+                  <div 
+                    className="grid gap-2"
+                    style={{ 
+                      gridTemplateColumns: `repeat(${size}, minmax(0, 1fr))`,
+                      gridTemplateRows: `repeat(${size}, minmax(0, 1fr))`
+                    }}
+                  >
+                    {board.map((cell, index) => {
+                      const coords = indexToCartesian(index, size, startX, startY, isSemantic);
+                      return (
+                        <div 
+                          key={index}
+                          onClick={() => playMove(index)}
+                          className={`grid-cell w-16 h-16 sm:w-20 sm:h-20 flex items-center justify-center text-4xl sm:text-5xl font-black rounded-xl cursor-pointer shadow-inner
+                            ${cell === 'X' ? 'sign-x' : cell === 'O' ? 'sign-o' : ''}
+                          `}
+                        >
+                          <span className="coord-tooltip">({coords.labelX}, {coords.labelY})</span>
+                          {cell}
+                        </div>
+                      )
+                    })}
+                  </div>
+
+                  {/* X Axis Labels (Bottom) */}
+                  <div className="absolute -bottom-10 left-0 right-0 flex justify-around text-slate-400 font-medium select-none">
+                    {xLabels.map((lbl, i) => (
+                      <div key={`x-${i}`} className="flex items-center justify-center w-16 sm:w-20 text-center">
+                        {lbl}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Move History */}
+              <div className="w-full mt-4 glass p-6 rounded-2xl max-h-60 overflow-y-auto custom-scrollbar">
+                <h2 className="text-lg font-bold mb-3 flex items-center gap-2">
+                  <svg className="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                  歷史紀錄
+                </h2>
+                {history.length === 0 ? (
+                  <p className="text-slate-500 text-sm">尚無下棋紀錄</p>
+                ) : (
+                  <ul className="space-y-2">
+                    {history.map((move, i) => (
+                      <li key={i} className="flex justify-between items-center bg-slate-800/50 px-4 py-2 rounded-lg text-sm">
+                        <span className="text-slate-300">第 {i + 1} 步</span>
+                        <span className="font-mono bg-slate-900 px-2 py-1 rounded text-cyan-300">
+                          {move.player} 於 ({move.labelX}, {move.labelY})
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
