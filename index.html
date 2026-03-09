@@ -201,6 +201,7 @@
       const [startX, setStartX] = useState(0);
       const [startY, setStartY] = useState(0);
       const [isSemantic, setIsSemantic] = useState(false);
+      const [isHideAxes, setIsHideAxes] = useState(false);
 
       const [inputX, setInputX] = useState('');
       const [inputY, setInputY] = useState('');
@@ -225,6 +226,31 @@
       // Generate axes labels
       const xLabels = Array.from({length: size}, (_, i) => getCoordinateLabel(i, true, isSemantic, size, startX));
       const yLabels = Array.from({length: size}, (_, i) => getCoordinateLabel(size - 1 - i, false, isSemantic, size, startY));
+
+      let finalXLabels = [...xLabels];
+      let finalYLabels = [...yLabels];
+
+      if (isHideAxes) {
+        let xHasCenter = false;
+        finalXLabels = finalXLabels.map(lbl => {
+          if ((isSemantic && size === 3 && lbl === '中') || (!isSemantic && lbl === 0)) {
+            xHasCenter = true;
+            return lbl;
+          }
+          return '';
+        });
+        if (!xHasCenter) finalXLabels[0] = xLabels[0]; // fallback to first column
+
+        let yHasCenter = false;
+        finalYLabels = finalYLabels.map(lbl => {
+          if ((isSemantic && size === 3 && lbl === '中') || (!isSemantic && lbl === 0)) {
+            yHasCenter = true;
+            return lbl;
+          }
+          return '';
+        });
+        if (!yHasCenter) finalYLabels[size - 1] = yLabels[size - 1]; // fallback to first row (bottom)
+      }
 
       return (
         <div className="container mx-auto py-10 px-4 flex flex-col items-center gap-8">
@@ -278,20 +304,34 @@
                     </div>
                   </div>
 
-                  {size === 3 && (
-                    <div className="flex items-center mt-2">
+                  <div className="flex flex-col gap-2 mt-2">
+                    {size === 3 && (
+                      <div className="flex items-center">
+                        <input 
+                          type="checkbox" 
+                          id="semantic-toggle"
+                          checked={isSemantic}
+                          onChange={(e) => setIsSemantic(e.target.checked)}
+                          className="w-4 h-4 text-cyan-500 bg-slate-800 border-slate-700 rounded focus:ring-cyan-500 transition"
+                        />
+                        <label htmlFor="semantic-toggle" className="ml-2 text-sm font-medium text-slate-300 select-none cursor-pointer">
+                          啟用 3x3 語義座標 (左/中/右, 下/中/上)
+                        </label>
+                      </div>
+                    )}
+                    <div className="flex items-center">
                       <input 
                         type="checkbox" 
-                        id="semantic-toggle"
-                        checked={isSemantic}
-                        onChange={(e) => setIsSemantic(e.target.checked)}
-                        className="w-4 h-4 text-cyan-500 bg-slate-800 border-slate-700 rounded focus:ring-cyan-500"
+                        id="hide-axes-toggle"
+                        checked={isHideAxes}
+                        onChange={(e) => setIsHideAxes(e.target.checked)}
+                        className="w-4 h-4 text-cyan-500 bg-slate-800 border-slate-700 rounded focus:ring-cyan-500 transition"
                       />
-                      <label htmlFor="semantic-toggle" className="ml-2 text-sm font-medium text-slate-300">
-                        啟用 3x3 語義座標 (左, 中, 右 / 下, 中, 上)
+                      <label htmlFor="hide-axes-toggle" className="ml-2 text-sm font-medium text-slate-300 select-none cursor-pointer">
+                        隱藏多餘座標標號 (僅保留中/0 或 起始點)
                       </label>
                     </div>
-                  )}
+                  </div>
                 </div>
               </div>
 
@@ -362,7 +402,7 @@
                     gridTemplateRows: `repeat(${size}, minmax(0, 1fr))`
                   }}
                 >
-                  {yLabels.map((lbl, i) => (
+                  {finalYLabels.map((lbl, i) => (
                     <div key={`y-${i}`} className="flex items-center justify-end w-8 text-right h-16 sm:h-20">
                       {lbl}
                     </div>
@@ -397,7 +437,7 @@
 
                   {/* X Axis Labels (Bottom) */}
                   <div className="absolute -bottom-10 left-0 right-0 flex justify-around text-slate-400 font-medium select-none">
-                    {xLabels.map((lbl, i) => (
+                    {finalXLabels.map((lbl, i) => (
                       <div key={`x-${i}`} className="flex items-center justify-center w-16 sm:w-20 text-center">
                         {lbl}
                       </div>
