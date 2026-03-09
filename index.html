@@ -207,7 +207,10 @@
       const [inputY, setInputY] = useState('');
       const [errorMsg, setErrorMsg] = useState('');
 
-      const { board, xIsNext, winner, isDraw, history, playMove, playCoordinate, resetGame } = useTicTacToe(size, startX, startY, isSemantic);
+      const numStartX = typeof startX === 'number' ? startX : (parseInt(startX) || 0);
+      const numStartY = typeof startY === 'number' ? startY : (parseInt(startY) || 0);
+
+      const { board, xIsNext, winner, isDraw, history, playMove, playCoordinate, resetGame } = useTicTacToe(size, numStartX, numStartY, isSemantic);
 
       const handleCoordSubmit = (e) => {
         e.preventDefault();
@@ -224,8 +227,8 @@
       };
 
       // Generate axes labels
-      const xLabels = Array.from({length: size}, (_, i) => getCoordinateLabel(i, true, isSemantic, size, startX));
-      const yLabels = Array.from({length: size}, (_, i) => getCoordinateLabel(size - 1 - i, false, isSemantic, size, startY));
+      const xLabels = Array.from({length: size}, (_, i) => getCoordinateLabel(i, true, isSemantic, size, numStartX));
+      const yLabels = Array.from({length: size}, (_, i) => getCoordinateLabel(size - 1 - i, false, isSemantic, size, numStartY));
 
       let finalXLabels = [...xLabels];
       let finalYLabels = [...yLabels];
@@ -289,7 +292,7 @@
                       <input 
                         type="number" 
                         value={startX} 
-                        onChange={(e) => setStartX(Number(e.target.value))}
+                        onChange={(e) => setStartX(e.target.value === '' || e.target.value === '-' ? e.target.value : Number(e.target.value))}
                         className="w-full bg-slate-800 border border-slate-700 rounded-lg p-2 text-white focus:ring-2 focus:ring-cyan-500 outline-none transition"
                       />
                     </div>
@@ -298,7 +301,7 @@
                       <input 
                         type="number" 
                         value={startY} 
-                        onChange={(e) => setStartY(Number(e.target.value))}
+                        onChange={(e) => setStartY(e.target.value === '' || e.target.value === '-' ? e.target.value : Number(e.target.value))}
                         className="w-full bg-slate-800 border border-slate-700 rounded-lg p-2 text-white focus:ring-2 focus:ring-cyan-500 outline-none transition"
                       />
                     </div>
@@ -419,7 +422,7 @@
                     }}
                   >
                     {board.map((cell, index) => {
-                      const coords = indexToCartesian(index, size, startX, startY, isSemantic);
+                      const coords = indexToCartesian(index, size, numStartX, numStartY, isSemantic);
                       return (
                         <div 
                           key={index}
